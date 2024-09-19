@@ -1,3 +1,4 @@
+#chatgpt 4o
 import pandas as pd
 import numpy as np
 from scipy.stats import linregress
