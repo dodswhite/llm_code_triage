@@ -1,0 +1,118 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © rumpypumpydumpy
+
+//@version=5
+indicator('Exponential Regression', overlay = true, max_lines_count = 500)
+
+f_exponential_regression_from_arrays(_x_array, _price_array) =>
+    int _size_y = array.size(_price_array)
+    int _size_x = array.size(_x_array)
+    float[] _y_array = array.new_float(_size_y)
+
+    for _i = 0 to _size_y - 1
+        array.set(_y_array, _i, math.log(array.get(_price_array, _i)))
+
+    float _sum_x = array.sum(_x_array)
+    float _sum_y = array.sum(_y_array)
+    float _sum_xy = 0.0
+    float _sum_x2 = 0.0
+    float _sum_y2 = 0.0
+
+    if _size_y == _size_x
+        for _i = 0 to _size_y - 1
+            float _x_i = nz(array.get(_x_array, _i))
+            float _y_i = nz(array.get(_y_array, _i))
+            _sum_xy := _sum_xy + _x_i * _y_i
+            _sum_x2 := _sum_x2 + math.pow(_x_i, 2)
+            _sum_y2 := _sum_y2 + math.pow(_y_i, 2)
+            _sum_y2
+
+    float _a = (_sum_y * _sum_x2 - _sum_x * _sum_xy) / (_size_x * _sum_x2 - math.pow(_sum_x, 2))
+    float _b = (_size_x * _sum_xy - _sum_x * _sum_y) / (_size_x * _sum_x2 - math.pow(_sum_x, 2))
+
+    float[] _f = array.new_float()
+
+    for _i = 0 to _size_y - 1
+        float _vector = _a + _b * array.get(_x_array, _i)
+        array.push(_f, _vector)
+
+    _slope = (array.get(_f, 0) - array.get(_f, _size_y - 1)) / (array.get(_x_array, 0) - array.get(_x_array, _size_x - 1))
+    _y_mean = array.avg(_y_array)
+
+    float _SS_res = 0.0
+    float _SS_tot = 0.0
+
+    for _i = 0 to _size_y - 1
+        float _f_i = array.get(_f, _i)
+        float _y_i = array.get(_y_array, _i)
+        _SS_res := _SS_res + math.pow(_f_i - _y_i, 2)
+        _SS_tot := _SS_tot + math.pow(_y_mean - _y_i, 2)
+        _SS_tot
+
+    _r_sq = 1 - _SS_res / _SS_tot
+
+    float _sq_err_sum = 0
+
+    for _i = 0 to _size_y - 1
+        _sq_err_sum += math.pow(array.get(_f, _i) - array.get(_y_array, _i), 2)
+
+    _dev = math.sqrt(_sq_err_sum / _size_y)
+
+    [_f, _slope, _r_sq, _dev]
+
+src = input(close, title = "Source")
+n = input(100, title='Length')
+mult = input(1.000, title='dev mult')
+
+var float[] price_array = array.new_float(n)
+var int[] x_array = array.new_int(n)
+
+array.unshift(price_array, src)
+array.pop(price_array)
+array.unshift(x_array, bar_index)
+array.pop(x_array)
+
+var line[] reg_line_array = array.new_line()
+var line[] dev_up_line_array = array.new_line()
+var line[] dev_dn_line_array = array.new_line()
+
+var label r2_label = label.new(x = na, y = na, style = label.style_label_lower_left, color = #00000000, textcolor = color.blue, size=size.normal, textalign = text.align_left)
+
+float[] dev_up_array = array.new_float()
+float[] dev_dn_array = array.new_float()
+
+var int step = na
+var int line_n = na
+
+if barstate.isfirst
+    line_n := math.min(n, 250)
+    for i = 0 to line_n - 1
+        array.unshift(reg_line_array, line.new(x1=na, y1=na, x2=na, y2=na, color=color.red))
+    if n > 250
+        step := math.ceil(n / 250)
+    else
+        step := 1
+    for i = 0 to math.floor(line_n / 2) - 1
+        array.unshift(dev_up_line_array, line.new(x1=na, y1=na, x2=na, y2=na, color=color.blue))
+        array.unshift(dev_dn_line_array, line.new(x1=na, y1=na, x2=na, y2=na, color=color.blue))
+
+if barstate.islast
+    [predictions, slope, r_sq, dev] = f_exponential_regression_from_arrays(x_array, price_array)
+    
+    for i = 0 to array.size(predictions) - 1
+        array.push(dev_up_array, math.exp(array.get(predictions, i) + mult * dev))
+        array.push(dev_dn_array, math.exp(array.get(predictions, i) - mult * dev))
+
+    for i = 0 to array.size(predictions) - 2 - step by step
+        line.set_xy1(array.get(reg_line_array, i / step), x=bar_index - i, y=math.exp(array.get(predictions, i)))
+        line.set_xy2(array.get(reg_line_array, i / step), x=bar_index - i - step, y=math.exp(array.get(predictions, i + step)))
+
+    for i = 0 to array.size(dev_up_array) - 2 - step by step * 2
+        line.set_xy1(array.get(dev_up_line_array, i / (step * 2)), x=bar_index - i, y=array.get(dev_up_array, i))
+        line.set_xy2(array.get(dev_up_line_array, i / (step * 2)), x=bar_index - i - step, y=array.get(dev_up_array, i + step))
+        line.set_xy1(array.get(dev_dn_line_array, i / (step * 2)), x=bar_index - i, y=array.get(dev_dn_array, i))
+        line.set_xy2(array.get(dev_dn_line_array, i / (step * 2)), x=bar_index - i - step, y=array.get(dev_dn_array, i + step))
+
+    label.set_xy(r2_label, x = bar_index + 1, y = array.get(dev_dn_array, 0))
+    label.set_text(r2_label, text = "R " + str.tostring(math.sqrt(r_sq)) + "\nR² " + str.tostring(r_sq))
+
